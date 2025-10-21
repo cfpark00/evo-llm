@@ -1,0 +1,26 @@
+# ES Evolution Experiment Configuration
+
+# Output configuration
+output_dir: "data/es_conciseness_v1"
+
+# Task configuration
+task:
+  name: "conciseness"
+  train_data: "data/conciseness/conciseness_train.json"
+  test_data: "data/conciseness/conciseness_test.json"
+
+# Model configuration
+model:
+  name: "Qwen/Qwen2.5-7B-Instruct"
+
+# ES hyperparameters
+es:
+  num_generations: 30
+  population_size: 30
+  learning_rate: 0.01
+  noise_multiplier: 1.0
+
+# Evaluation configuration
+evaluation:
+  max_tokens: 100
+  temperature: 0.0  # Greedy decoding

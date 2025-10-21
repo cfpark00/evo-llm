@@ -1,0 +1,4 @@
+Read:
+- CLAUDE.md
+- docs/repo_usage.md
+- docs/research_context.md

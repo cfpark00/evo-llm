@@ -1,0 +1,407 @@
+EVOLM - Evolution Strategies for LLM Fine-tuning
+Repository Structure
+Last Updated: 2025-10-21
+
+================================================================================
+ROOT DIRECTORY
+================================================================================
+/n/holylfs06/LABS/finkbeiner_lab/Users/cfpark00/datadir/evolm/
+
+CONFIGURATION FILES
+-------------------
+├── CLAUDE.md              Project development guidelines (mandatory)
+├── README.md              Basic project information
+├── pyproject.toml         UV package configuration & dependencies
+├── uv.lock                Locked dependencies for reproducibility
+├── .env                   Environment variables (DATA_DIR=./data/)
+├── .env.example           Template for environment setup
+├── .gitignore             Git ignore rules (data/, .venv/, scratch/)
+
+PYTHON VIRTUAL ENVIRONMENT
+--------------------------
+├── .venv/                 UV-managed Python virtual environment
+                           (Use: source .venv/bin/activate OR uv run)
+
+================================================================================
+SOURCE CODE (/src/)
+================================================================================
+All production Python code lives here.
+
+├── src/
+│   ├── __init__.py
+│   ├── utils.py           Safe directory initialization (init_directory)
+│   │                      - Validates output paths against DATA_DIR
+│   │                      - Prevents accidental overwrites outside data/
+│   │                      - Used by all orchestration scripts
+│   │
+│   └── scripts/           [EMPTY] Orchestration scripts (entry points)
+│                          Expected future structure:
+│                          - es_train.py (main ES training loop)
+│                          - evaluate.py (evaluation scripts)
+│                          - analyze_results.py (analysis scripts)
+
+================================================================================
+CONFIGURATION FILES (/configs/)
+================================================================================
+All experiment configurations in YAML format.
+Every config MUST have 'output_dir' field.
+
+├── configs/               [EMPTY] Currently no configs
+│                          Expected future structure:
+│                          ├── experiments/
+│                          │   └── countdown_es.yaml
+│                          ├── models/
+│                          │   └── qwen_lora.yaml
+│                          └── data/
+│                              └── countdown.yaml
+
+================================================================================
+BASH SCRIPTS (/scripts/)
+================================================================================
+Minimal bash wrappers for running experiments.
+Pattern: uv run python src/scripts/<script>.py configs/<config>.yaml "$@"
+
+├── scripts/               [EMPTY] Currently no scripts
+│                          Expected future structure:
+│                          ├── experiments/
+│                          │   └── train_countdown_es.sh
+│                          └── evaluation/
+│                              └── eval_checkpoint.sh
+
+================================================================================
+DATA OUTPUTS (/data/)
+================================================================================
+All experiment outputs (gitignored).
+Auto-created from configs' output_dir field.
+
+├── data/                  [EMPTY] Experiment outputs go here
+│                          Standard structure per experiment:
+│                          └── <experiment_name>/
+│                              ├── figures/       Plots & visualizations
+│                              ├── results/       JSON/CSV results
+│                              ├── logs/          Training logs
+│                              └── config.yaml    Copy of config used
+
+================================================================================
+DOCUMENTATION (/docs/)
+================================================================================
+Research context, development logs, and technical documentation.
+
+├── docs/
+│   ├── start.txt                 Quick start guide (points to key docs)
+│   ├── closing_tasks.md          End-of-day checklist
+│   ├── structure.txt             This file - repo structure overview
+│   │
+│   ├── CLAUDE.md -> ../CLAUDE.md Symlink to root CLAUDE.md
+│   │
+│   ├── repo_usage.md             Comprehensive development guide (213 lines)
+│   │                             - Fail-fast philosophy
+│   │                             - Implementation vs orchestration
+│   │                             - Config validation patterns
+│   │                             - Standard script templates
+│   │
+│   ├── research_context.md       Main research document (237 lines)
+│   │                             - Project goals & methodology
+│   │                             - ES algorithm details
+│   │                             - Current progress & milestones
+│   │                             - Open questions & hypotheses
+│   │
+│   └── logs/                     Daily development logs
+│       └── 2025-10-21/
+│           ├── 1214_infrastructure_setup_and_testing.md
+│           ├── 1452_sglang_lora_fix.md
+│           └── 1748_es_conciseness_task_complete_setup.md
+
+================================================================================
+EXTERNAL RESOURCES (/resources/)
+================================================================================
+External code, papers, datasets (gitignored).
+
+├── resources/
+│   └── es-fine-tuning-paper/     Git submodule - original paper's code
+│       ├── README.md
+│       ├── LICENSE.txt
+│       ├── requirement.txt
+│       ├── es_fine-tuning_conciseness.py
+│       ├── es_fine-tuning_conciseness_iid.py
+│       │
+│       └── countdown/            Countdown task implementation
+│           ├── countdown_task.py Reward function (imported by tests)
+│           ├── es_fine-tuning_countdown.py
+│           ├── es_fine-tuning_countdown_iid.py
+│           └── data/
+│               └── countdown.json    Dataset (5+ examples)
+
+================================================================================
+SCRATCH SPACE (/scratch/)
+================================================================================
+Temporary testing & exploration code (gitignored except .gitkeep).
+NOT production code - for experimentation only.
+
+├── scratch/
+│   ├── .gitkeep
+│   │
+│   ├── countdown_test/           Countdown task testing
+│   │   ├── test_countdown.py     (183 lines) Base model inference test
+│   │   ├── run_test.sh           Executable bash script
+│   │   └── outputs/              Test results directory
+│   │
+│   └── sglang_lora_test/         SGLang + LoRA integration testing
+│       ├── init_loras.py         (165 lines) Create 5 LoRA adapters
+│       ├── es_test_run.py        (389 lines) ES loop skeleton
+│       ├── run_init.sh           Run LoRA initialization
+│       ├── run_es_test.sh        Run ES test loop
+│       ├── start_sglang_server.sh    Start SGLang with multi-LoRA
+│       │
+│       ├── lora_adapters/        Generated LoRA adapters
+│       │   ├── lora_0/           Adapter 0 (rank=1, alpha=2)
+│       │   │   ├── adapter_config.json
+│       │   │   └── adapter_model.safetensors
+│       │   ├── lora_1/ ... lora_4/   Adapters 1-4 (same config)
+│       │   ├── tokenizer/        Shared tokenizer
+│       │   └── metadata.json     Configuration tracking
+│       │
+│       └── es_test_output/       [Created at runtime]
+│                                  Evolution history & checkpoints
+
+================================================================================
+KEY DEPENDENCIES (from pyproject.toml)
+================================================================================
+
+CORE ML FRAMEWORKS
+------------------
+- torch                   PyTorch deep learning framework
+- transformers            HuggingFace transformers (LLM inference)
+- peft                    Parameter-Efficient Fine-Tuning (LoRA)
+- accelerate              Distributed training utilities
+
+SERVING & API
+-------------
+- fastapi                 Web service framework
+- requests                HTTP client (for SGLang API)
+- sglang                  [External] Multi-LoRA serving (not in pyproject)
+
+EXPERIMENT TRACKING
+-------------------
+- wandb                   Weights & Biases experiment tracking
+
+DATA SCIENCE
+------------
+- numpy                   Numerical computing
+- scipy                   Scientific computing
+- pandas                  Data manipulation
+- scikit-learn            Machine learning utilities
+
+PIPELINE ORCHESTRATION
+----------------------
+- dspy-ai                 Pipeline orchestration framework
+
+DEVELOPMENT TOOLS
+-----------------
+- ipykernel               Jupyter kernel
+- pytest-cov              Test coverage
+- black                   Code formatting
+- ruff                    Linting
+
+================================================================================
+CURRENT PROJECT STATUS
+================================================================================
+
+COMPLETED COMPONENTS
+--------------------
+✅ Project structure (following CLAUDE.md)
+✅ Environment setup (uv, dependencies, .env)
+✅ Documentation (research context, development guidelines)
+✅ Countdown task integration (reward function tested)
+✅ LoRA adapter creation (5 adapters, rank=1, alpha=2, layers 0-10)
+✅ Base model inference test (Qwen2.5-7B-Instruct)
+✅ ES loop skeleton (evaluation, perturbation, aggregation logic)
+
+IN PROGRESS
+-----------
+🔄 SGLang + LoRA integration (API tested, dynamic loading blocked)
+🔄 End-to-end ES pipeline (skeleton done, needs integration)
+
+NOT YET STARTED
+---------------
+❌ Production ES framework in src/
+❌ Experiment configs in configs/
+❌ Orchestration scripts in src/scripts/
+❌ Bash runners in scripts/
+❌ Baseline experiments
+❌ Experiment tracking (W&B integration)
+❌ Unit tests
+
+CRITICAL BLOCKER
+----------------
+⚠️  SGLang dynamic LoRA loading API not documented/working
+    - Current: Must preload all LoRAs at server startup
+    - Needed: Ability to load new LoRAs during evolution
+    - Workaround: Restart server each generation (slow)
+
+================================================================================
+RESEARCH CONFIGURATION
+================================================================================
+
+MODEL
+-----
+Base: Qwen/Qwen2.5-7B-Instruct
+LoRA config:
+  - Rank: 1
+  - Alpha: 2
+  - Target layers: 0-10 (11 layers)
+  - Target modules: q/k/v/o_proj (attn) + gate/up/down_proj (MLP)
+  - Total: 77 target modules
+  - Trainable params: ~0.01% of full model
+
+ES ALGORITHM (Simplified NES)
+-----------------------------
+Population size: 30 (paper) / 5 (current testing)
+Noise scale (σ): 0.001
+Learning rate (α): 5×10⁻⁴
+Generations: 5 (testing) / more (production)
+Evaluation: Greedy decoding (deterministic)
+Advantage: Z-score normalization (reward - mean) / std
+
+TASK
+----
+Primary: Countdown (mathematical reasoning)
+Dataset: resources/es-fine-tuning-paper/countdown/data/countdown.json
+Reward: format_reward (0.5) + answer_reward (0.5)
+Evaluation examples: 5 (testing) / more (production)
+
+================================================================================
+KEY PATHS (Absolute)
+================================================================================
+
+Project Root:
+/n/holylfs06/LABS/finkbeiner_lab/Users/cfpark00/datadir/evolm
+
+Additional Working Directory:
+/n/home12/cfpark00/datadir/evolm
+
+Key Files:
+- Countdown data: resources/es-fine-tuning-paper/countdown/data/countdown.json
+- Countdown reward: resources/es-fine-tuning-paper/countdown/countdown_task.py
+- Test LoRAs: scratch/sglang_lora_test/lora_adapters/
+- Utils: src/utils.py
+
+================================================================================
+DEVELOPMENT WORKFLOW
+================================================================================
+
+1. CREATE EXPERIMENT CONFIG
+   └─ configs/experiments/<experiment_name>.yaml
+      Must include: output_dir field
+
+2. IMPLEMENT LOGIC
+   ├─ Implementation (HOW): src/<module>.py
+   └─ Orchestration (WHAT/WHEN): src/scripts/<script>.py
+
+3. CREATE BASH RUNNER
+   └─ scripts/<category>/<script>.sh
+      Pattern: uv run python src/scripts/<script>.py configs/<config>.yaml "$@"
+
+4. RUN EXPERIMENT
+   └─ bash scripts/<category>/<script>.sh [--overwrite] [--debug]
+
+5. ANALYZE RESULTS
+   └─ data/<experiment_name>/
+      ├─ figures/
+      ├─ results/
+      └─ logs/
+
+6. END OF DAY
+   ├─ Write log: docs/logs/<YYYY-MM-DD>/<HHMM_topic>.md
+   ├─ Update docs/structure.txt (if structure changed)
+   └─ Update docs/research_context.md (current status)
+
+================================================================================
+CODING CONVENTIONS
+================================================================================
+
+FAIL FAST PHILOSOPHY
+--------------------
+✅ Crash immediately on missing configs
+✅ Validate all required fields upfront
+✅ Exit on critical errors (don't silently continue)
+❌ NO silent fallbacks or default values for critical params
+❌ NO hidden implicit behavior
+
+IMPORTS
+-------
+from src.module import function         # ✅ Good
+from src.utils import init_directory    # ✅ Good
+from module import function             # ❌ Bad (relative)
+
+CONFIG VALIDATION
+-----------------
+# Always check output_dir FIRST
+if 'output_dir' not in config:
+    raise ValueError("FATAL: 'output_dir' required in config")
+
+# Validate other required fields
+for field in required_fields:
+    if field not in config:
+        raise ValueError(f"FATAL: '{field}' required")
+
+OUTPUT MANAGEMENT
+-----------------
+from src.utils import init_directory
+
+output_dir = init_directory(config['output_dir'], overwrite=args.overwrite)
+(output_dir / 'figures').mkdir(parents=True, exist_ok=True)
+(output_dir / 'results').mkdir(parents=True, exist_ok=True)
+(output_dir / 'logs').mkdir(parents=True, exist_ok=True)
+
+# Copy config to output_dir for reproducibility
+shutil.copy(config_path, output_dir / 'config.yaml')
+
+================================================================================
+GIT CONVENTIONS
+================================================================================
+
+GITIGNORED
+----------
+- /data/              All experiment outputs
+- /scratch/           All testing code (except .gitkeep)
+- /resources/         External resources
+- /.venv/             Virtual environment
+- /.env               Environment variables (use .env.example)
+
+TRACKED
+-------
+- /src/               All production code
+- /configs/           All configuration files
+- /scripts/           All bash runners
+- /docs/              All documentation
+- uv.lock             Locked dependencies
+- CLAUDE.md           Development guidelines
+
+COMMIT MESSAGES
+---------------
+- Descriptive and concise
+- Focus on WHY, not WHAT (code shows what)
+- Use imperative mood ("Add feature" not "Added feature")
+
+================================================================================
+NOTES
+================================================================================
+
+1. This is a RESEARCH repository - prioritize clarity and reproducibility
+   over performance optimization.
+
+2. All code in /scratch/ is TEMPORARY - move to /src/ when production-ready.
+
+3. NEVER create file variations like _v2, _final, _updated. Use git.
+
+4. When in doubt, FAIL LOUDLY. Silent failures waste compute time.
+
+5. Configs are the source of truth - everything else is code.
+
+6. Documentation is not optional - it's part of research.
+
+================================================================================
+END OF STRUCTURE DOCUMENTATION
+================================================================================
+2025-10-21: Added scratch/sglang_lora_only_test/ for isolated LoRA testing. Fixed LoRA config to use layers_to_transform instead of explicit paths.

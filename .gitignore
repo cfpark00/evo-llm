@@ -1,0 +1,56 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+env/
+
+# Jupyter
+.ipynb_checkpoints
+*.ipynb_checkpoints
+
+# Data
+data/
+
+# Scratch - temporary work directory (NOT ignored, just its contents)
+resources/*
+
+scratch/*
+!scratch/.gitkeep
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+*.log
+
+# Model files
+*.pt
+*.pth
+*.safetensors
+*.bin
+*.ckpt
+
+# UV
+uv.lock
+
+# Experiment outputs
+outputs/
+results/
+wandb/
+runs/
+checkpoints/
+*.egg-info/

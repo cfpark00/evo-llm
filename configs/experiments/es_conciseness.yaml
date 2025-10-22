@@ -16,8 +16,8 @@ model:
 
 # LoRA configuration
 lora:
-  rank: 1
-  alpha: 2
+  rank: 8
+  alpha: 16
   target_layers: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]  # Layers 0-9
   target_modules: ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
 
@@ -26,8 +26,8 @@ es:
   num_generations: 1000
   population_size: 30
   learning_rate: 0.01
-  init_scale: 4.0      # Multiplier for Gen0 initialization (applied to per-layer base noise)
-  perturb_scale: 1.0   # Multiplier for Gen1+ perturbations (applied to per-layer base noise)
+  init_scale: 4      # Multiplier for Gen0 initialization (applied to per-layer base noise)
+  perturb_scale: 0.2   # Multiplier for Gen1+ perturbations (applied to per-layer base noise)
 
 # Evaluation configuration
 evaluation:

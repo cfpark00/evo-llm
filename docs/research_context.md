@@ -74,10 +74,11 @@ For each generation t:
 ### Hyperparameters (Current Configuration)
 - **Population size (N)**: 30 (following paper)
 - **Learning rate (α)**: 0.01 (higher than paper's 5×10⁻⁴ due to LoRA)
-- **Noise multiplier**: 1.0x (applied to per-layer base noise)
+- **Base noise per layer**: 10% of mean weight magnitude (adaptive)
+- **Init scale**: 4.0 (multiplier on base noise for Gen0 initialization)
+- **Perturb scale**: 1.0 (multiplier on base noise for Gen1+ perturbations)
 - **LoRA rank**: 1 (minimal, fast)
 - **LoRA alpha**: 2
-- **LoRA init scale**: 20x (both A and B matrices)
 - **Target layers**: 0-9 (first 10 layers)
 - **Generations**: 5 (testing; increase to 50-100 for full runs)
 
@@ -190,30 +191,45 @@ This allows us to isolate the core ES dynamics and understand the fundamental di
 
 ### Current Status & Next Steps
 
-**Production Framework Status**: ✅ COMPLETE
-- Formal orchestration script following repo conventions
+**Production Framework Status**: ✅ COMPLETE (2025-10-21)
+- Formal orchestration script following repo conventions (`src/scripts/es_train.py`)
 - Config-driven architecture with no hardcoded values
-- Task class system for complete isolation
+- Task class system for complete isolation (ConcisenessTask, CountdownTask)
 - Bash runners for both conciseness and countdown tasks
+- LoRA initialization system with adaptive per-layer scaling + tunable multipliers
+- Training subset cycling for efficient large-dataset training
+- Comprehensive time tracking and visualization
 - Ready for full-scale experiments
 
-**Performance Investigation**: 🔍 ONGOING
-- Identified performance degradation after removing 20x scaling
-- Root cause: Initial LoRAs now 20x weaker than scratch implementation
-- User will experiment with increased noise_multiplier to compensate
+**LoRA Initialization**: ✅ RESOLVED (2025-10-21)
+- Root cause identified: Production 20x weaker than scratch test
+- Solution: Separated `init_scale` (Gen0) from `perturb_scale` (Gen1+)
+- Base noise = 10% of mean weight magnitude (adaptive per-layer)
+- Scales multiply base noise (tunable hyperparameters)
+- Config: `init_scale: 4.0`, `perturb_scale: 1.0`
+
+**Large Dataset Efficiency**: ✅ IMPLEMENTED (2025-10-21)
+- Countdown has 1600 train examples (vs conciseness 2)
+- Added `samples_per_generation` parameter for subset cycling
+- Cycles through 128 samples/gen → 12.5x speedup
+- Full dataset seen ~80 times over 1000 generations
+- Test set subsampling: fixed 100 samples for fast evaluation
 
 **Immediate Next Steps**:
-1. Run experiments with adjusted noise_multiplier to match scratch performance
-2. Consider adding separate initialization scaling parameter if needed
-3. Execute full experiments (30 generations, population 30) with both tasks
-4. Compare results between conciseness and countdown tasks
+1. Run full countdown experiment (1000 generations) to validate:
+   - Init/perturb scales working correctly
+   - Subset cycling maintains convergence
+   - Time tracking accurate
+2. Compare results with scratch test baseline
+3. Execute conciseness experiment (30 generations)
+4. Analyze time breakdown to identify bottlenecks
 
 **Future Work**:
-1. Hyperparameter tuning to match paper's performance
-2. Longer runs (100+ generations) for full convergence
-3. Analysis framework for tracking evolution dynamics
-4. Comparison with RL baselines
-5. Exploration of different LoRA ranks and configurations
+1. Hyperparameter tuning (`init_scale`, `perturb_scale`, `samples_per_generation`)
+2. Analysis framework for tracking evolution dynamics
+3. Comparison with RL baselines
+4. Exploration of different LoRA ranks and target layer configurations
+5. W&B integration for experiment tracking
 
 ## Research Questions & Hypotheses
 

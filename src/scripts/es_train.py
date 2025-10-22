@@ -504,6 +504,8 @@ def main(config_path, overwrite=False, debug=False):
     perturb_scale = config['es']['perturb_scale']
 
     max_tokens = config['evaluation']['max_tokens']
+    samples_per_gen = config['evaluation'].get('samples_per_generation', None)
+    test_samples = config['evaluation'].get('test_samples', None)
 
     # Determine parallel workers
     import os
@@ -513,8 +515,26 @@ def main(config_path, overwrite=False, debug=False):
     # Initialize task and load data
     task = get_task(task_name, config['task'])
     task.load_data(seed=seed)
-    train_examples = task.train_data
-    test_examples = task.test_data
+    train_examples_full = task.train_data
+    test_examples_full = task.test_data
+
+    # Setup training sample cycling
+    if samples_per_gen is None or samples_per_gen >= len(train_examples_full):
+        # Use all samples every generation (conciseness mode)
+        use_cycling = False
+        samples_per_gen = len(train_examples_full)
+    else:
+        # Cycle through subsets (countdown mode)
+        use_cycling = True
+
+    # Setup test sample subset (fixed, not cycling)
+    if test_samples is None or test_samples >= len(test_examples_full):
+        test_examples = test_examples_full
+    else:
+        # Use fixed subset from beginning
+        rng = np.random.RandomState(seed)
+        indices = rng.permutation(len(test_examples_full))[:test_samples]
+        test_examples = [test_examples_full[i] for i in sorted(indices)]
 
     print("=" * 80)
     print("ES EVOLUTION WITH PARALLEL MULTI-LORA BATCHING")
@@ -526,8 +546,18 @@ def main(config_path, overwrite=False, debug=False):
     print(f"  Learning rate (α): {learning_rate}")
     print(f"  Init scale: {init_scale}")
     print(f"  Perturb scale: {perturb_scale}")
-    print(f"  Training examples: {len(train_examples)}")
-    print(f"  Test examples: {len(test_examples)}")
+    print(f"  Training examples (total): {len(train_examples_full)}")
+    print(f"  Training examples (per gen): {samples_per_gen}")
+    if use_cycling:
+        print(f"  Training mode: Cycling subsets")
+    else:
+        print(f"  Training mode: Full dataset each generation")
+    print(f"  Test examples (total): {len(test_examples_full)}")
+    print(f"  Test examples (used): {len(test_examples)}")
+    if len(test_examples) < len(test_examples_full):
+        print(f"  Test mode: Fixed random subset")
+    else:
+        print(f"  Test mode: Full test set")
     print(f"  Output dir: {output_dir}")
     print(f"  Parallel workers: {max_workers}")
     print()
@@ -615,6 +645,15 @@ def main(config_path, overwrite=False, debug=False):
         print("GENERATION 0: Evaluating initial population")
         print("=" * 80)
 
+        # Select training subset for this generation
+        if use_cycling:
+            start_idx = 0
+            end_idx = min(samples_per_gen, len(train_examples_full))
+            train_examples = train_examples_full[start_idx:end_idx]
+            print(f"  Using samples {start_idx}-{end_idx-1} ({len(train_examples)} examples)")
+        else:
+            train_examples = train_examples_full
+
         t_load = time.time()
         print(f"\nLoading {population_size} LoRAs...")
         for i, lora_path in enumerate(initial_loras):
@@ -653,6 +692,19 @@ def main(config_path, overwrite=False, debug=False):
             print("\n" + "=" * 80)
             print(f"GENERATION {gen}")
             print("=" * 80)
+
+            # Select training subset for this generation (cycling)
+            if use_cycling:
+                start_idx = (gen * samples_per_gen) % len(train_examples_full)
+                end_idx = start_idx + samples_per_gen
+                if end_idx <= len(train_examples_full):
+                    train_examples = train_examples_full[start_idx:end_idx]
+                else:
+                    # Wrap around to beginning
+                    train_examples = train_examples_full[start_idx:] + train_examples_full[:end_idx - len(train_examples_full)]
+                print(f"  Using samples {start_idx}-{(start_idx + len(train_examples) - 1) % len(train_examples_full)} ({len(train_examples)} examples)")
+            else:
+                train_examples = train_examples_full
 
             prev_loras = [Path(p) for p in evolution_history[-1]['lora_paths']]
             prev_rewards = evolution_history[-1]['rewards']

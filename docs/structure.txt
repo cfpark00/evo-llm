@@ -48,14 +48,12 @@ CONFIGURATION FILES (/configs/)
 All experiment configurations in YAML format.
 Every config MUST have 'output_dir' field.
 
-├── configs/               [EMPTY] Currently no configs
-│                          Expected future structure:
-│                          ├── experiments/
-│                          │   └── countdown_es.yaml
-│                          ├── models/
-│                          │   └── qwen_lora.yaml
-│                          └── data/
-│                              └── countdown.yaml
+├── configs/
+│   └── experiments/
+│       ├── es_conciseness.yaml    Conciseness task config (2 train, 8 test)
+│       └── es_countdown.yaml      Countdown task config (1600 train, 400 test)
+│                                  - Uses samples_per_generation: 128
+│                                  - Uses test_samples: 100
 
 ================================================================================
 BASH SCRIPTS (/scripts/)
@@ -63,12 +61,10 @@ BASH SCRIPTS (/scripts/)
 Minimal bash wrappers for running experiments.
 Pattern: uv run python src/scripts/<script>.py configs/<config>.yaml "$@"
 
-├── scripts/               [EMPTY] Currently no scripts
-│                          Expected future structure:
-│                          ├── experiments/
-│                          │   └── train_countdown_es.sh
-│                          └── evaluation/
-│                              └── eval_checkpoint.sh
+├── scripts/
+│   └── experiments/
+│       ├── train_es_conciseness.sh    Run conciseness ES training
+│       └── train_es_countdown.sh      Run countdown ES training
 
 ================================================================================
 DATA OUTPUTS (/data/)
@@ -76,13 +72,20 @@ DATA OUTPUTS (/data/)
 All experiment outputs (gitignored).
 Auto-created from configs' output_dir field.
 
-├── data/                  [EMPTY] Experiment outputs go here
-│                          Standard structure per experiment:
-│                          └── <experiment_name>/
-│                              ├── figures/       Plots & visualizations
-│                              ├── results/       JSON/CSV results
-│                              ├── logs/          Training logs
-│                              └── config.yaml    Copy of config used
+├── data/                  Experiment outputs (gitignored)
+│   ├── tasks/             Task-specific datasets
+│   │   ├── conciseness/
+│   │   │   ├── conciseness_train.json (2 examples)
+│   │   │   └── conciseness_test.json  (8 examples)
+│   │   └── countdown/
+│   │       └── countdown.json         (2000 examples, split 80/20 at runtime)
+│   │
+│   └── <experiment_outputs>/  Auto-created from config's output_dir
+│       ├── figures/           Plots (evolution.png, time_breakdown.png)
+│       ├── results/           JSON results (evolution_history.json, time_breakdown.json)
+│       ├── logs/              Training logs
+│       ├── loras/             Generated LoRA adapters
+│       └── config.yaml        Copy of config used
 
 ================================================================================
 DOCUMENTATION (/docs/)
@@ -112,7 +115,9 @@ Research context, development logs, and technical documentation.
 │       └── 2025-10-21/
 │           ├── 1214_infrastructure_setup_and_testing.md
 │           ├── 1452_sglang_lora_fix.md
-│           └── 1748_es_conciseness_task_complete_setup.md
+│           ├── 1748_es_conciseness_task_complete_setup.md
+│           ├── 1932_es_formalization_and_task_refactoring.md
+│           └── 2021_lora_init_debugging_and_countdown_setup.md
 
 ================================================================================
 EXTERNAL RESOURCES (/resources/)
@@ -214,32 +219,26 @@ COMPLETED COMPONENTS
 ✅ Project structure (following CLAUDE.md)
 ✅ Environment setup (uv, dependencies, .env)
 ✅ Documentation (research context, development guidelines)
-✅ Countdown task integration (reward function tested)
-✅ LoRA adapter creation (5 adapters, rank=1, alpha=2, layers 0-10)
-✅ Base model inference test (Qwen2.5-7B-Instruct)
-✅ ES loop skeleton (evaluation, perturbation, aggregation logic)
+✅ Task system (ConcisenessTask, CountdownTask with reward functions)
+✅ Production ES framework (src/scripts/es_train.py)
+✅ Experiment configs (conciseness, countdown)
+✅ Bash runners (train_es_conciseness.sh, train_es_countdown.sh)
+✅ SGLang + LoRA integration (dynamic load/unload working)
+✅ LoRA initialization system (adaptive per-layer + configurable scales)
+✅ Training subset cycling (for large datasets)
+✅ Time tracking and visualization
 
 IN PROGRESS
 -----------
-🔄 SGLang + LoRA integration (API tested, dynamic loading blocked)
-🔄 End-to-end ES pipeline (skeleton done, needs integration)
+🔄 Baseline experiments (ready to run, not yet executed)
+🔄 Hyperparameter tuning (init_scale, perturb_scale values)
 
 NOT YET STARTED
 ---------------
-❌ Production ES framework in src/
-❌ Experiment configs in configs/
-❌ Orchestration scripts in src/scripts/
-❌ Bash runners in scripts/
-❌ Baseline experiments
 ❌ Experiment tracking (W&B integration)
 ❌ Unit tests
-
-CRITICAL BLOCKER
-----------------
-⚠️  SGLang dynamic LoRA loading API not documented/working
-    - Current: Must preload all LoRAs at server startup
-    - Needed: Ability to load new LoRAs during evolution
-    - Workaround: Restart server each generation (slow)
+❌ Multi-GPU support
+❌ Checkpoint recovery
 
 ================================================================================
 RESEARCH CONFIGURATION
@@ -256,21 +255,29 @@ LoRA config:
   - Total: 77 target modules
   - Trainable params: ~0.01% of full model
 
-ES ALGORITHM (Simplified NES)
------------------------------
-Population size: 30 (paper) / 5 (current testing)
-Noise scale (σ): 0.001
-Learning rate (α): 5×10⁻⁴
-Generations: 5 (testing) / more (production)
-Evaluation: Greedy decoding (deterministic)
+ES ALGORITHM (Natural ES / Simplified NES)
+------------------------------------------
+Population size: 30
+Learning rate (α): 0.01
+Init scale: 4.0 (multiplier on per-layer base noise for Gen0)
+Perturb scale: 1.0 (multiplier on per-layer base noise for Gen1+)
+Base noise per layer: 10% of mean weight magnitude (adaptive)
+Generations: 30 (conciseness) / 1000 (countdown)
+Evaluation: Greedy decoding (temperature=0.0, deterministic)
 Advantage: Z-score normalization (reward - mean) / std
+Training: Cycles through subsets (countdown) or full dataset (conciseness)
 
-TASK
-----
-Primary: Countdown (mathematical reasoning)
-Dataset: resources/es-fine-tuning-paper/countdown/data/countdown.json
-Reward: format_reward (0.5) + answer_reward (0.5)
-Evaluation examples: 5 (testing) / more (production)
+TASKS
+-----
+Conciseness:
+  - Dataset: data/tasks/conciseness/ (2 train, 8 test)
+  - Reward: Word count reduction metric
+  - Mode: Full dataset every generation
+
+Countdown (mathematical reasoning):
+  - Dataset: data/tasks/countdown/countdown.json (2000 total, split 80/20)
+  - Reward: 0.1 × format_reward + answer_reward
+  - Mode: Cycles 128 samples/gen, 100 test samples (12.5x speedup)
 
 ================================================================================
 KEY PATHS (Absolute)
@@ -406,4 +413,15 @@ NOTES
 ================================================================================
 END OF STRUCTURE DOCUMENTATION
 ================================================================================
-2025-10-21: Added scratch/sglang_lora_only_test/ for isolated LoRA testing. Fixed LoRA config to use layers_to_transform instead of explicit paths.
+
+UPDATE LOG
+----------
+2025-10-21 20:21: Major production updates
+  - Added production ES training (src/scripts/es_train.py)
+  - Added task classes (src/tasks/conciseness.py, countdown.py)
+  - Added experiment configs (configs/experiments/)
+  - Added bash runners (scripts/experiments/)
+  - Implemented LoRA init/perturb scale parameterization
+  - Added training subset cycling for large datasets
+  - Added time tracking and visualization
+  - Ready for baseline experiments

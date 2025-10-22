@@ -1,0 +1,42 @@
+[
+  {
+    "id": "test_0",
+    "prompt": "What is the capital of France?",
+    "target": "Paris"
+  },
+  {
+    "id": "test_1",
+    "prompt": "Calculate: 12 \u00d7 7 =",
+    "target": "84"
+  },
+  {
+    "id": "test_2",
+    "prompt": "Is the statement \"All cats are mammals\" true or false?",
+    "target": "True"
+  },
+  {
+    "id": "test_3",
+    "prompt": "What comes next in the sequence: 2, 4, 6, 8, ?",
+    "target": "10"
+  },
+  {
+    "id": "test_4",
+    "prompt": "Translate \"Hello\" to Spanish:",
+    "target": "Hola"
+  },
+  {
+    "id": "test_5",
+    "prompt": "What is 15% of 200?",
+    "target": "30"
+  },
+  {
+    "id": "test_6",
+    "prompt": "Name one primary color:",
+    "target": "Red"
+  },
+  {
+    "id": "test_7",
+    "prompt": "How many days are in a week?",
+    "target": "7"
+  }
+]

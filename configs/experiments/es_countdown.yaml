@@ -1,14 +1,13 @@
 # ES Evolution Experiment Configuration
 
 # Output configuration
-output_dir: "data/es_conciseness_v1"
-seed: 0
+output_dir: "data/es_countdown_v1"
+seed: 42
 
 # Task configuration
 task:
-  name: "conciseness"
-  train_data: "data/tasks/conciseness/conciseness_train.json"
-  test_data: "data/tasks/conciseness/conciseness_test.json"
+  name: "countdown"
+  train_data: "data/tasks/countdown/countdown.json"  # Will be split 80/20 at runtime
 
 # Model configuration
 model:
@@ -31,5 +30,5 @@ es:
 
 # Evaluation configuration
 evaluation:
-  max_tokens: 100
+  max_tokens: 1024  # Longer for countdown task
   temperature: 0.0  # Greedy decoding

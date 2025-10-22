@@ -1,0 +1,12 @@
+[
+  {
+    "id": "train_0",
+    "prompt": "Solve: 3 + 5 =",
+    "target": "8"
+  },
+  {
+    "id": "train_1",
+    "prompt": "If all birds can fly and penguins are birds, can penguins fly?",
+    "target": "No"
+  }
+]

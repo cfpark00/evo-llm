@@ -34,11 +34,13 @@ All production Python code lives here.
 │   │                      - Prevents accidental overwrites outside data/
 │   │                      - Used by all orchestration scripts
 │   │
-│   └── scripts/           [EMPTY] Orchestration scripts (entry points)
-│                          Expected future structure:
-│                          - es_train.py (main ES training loop)
-│                          - evaluate.py (evaluation scripts)
-│                          - analyze_results.py (analysis scripts)
+│   ├── tasks/             Task-specific logic (reward functions, data loading)
+│   │   ├── __init__.py    Task registry (get_task function)
+│   │   ├── conciseness.py ConcisenessTask class
+│   │   └── countdown.py   CountdownTask class
+│   │
+│   └── scripts/           Orchestration scripts (entry points)
+│       └── es_train.py    Main ES training loop (parallel multi-LoRA)
 
 ================================================================================
 CONFIGURATION FILES (/configs/)

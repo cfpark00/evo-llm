@@ -138,6 +138,33 @@ This allows us to isolate the core ES dynamics and understand the fundamental di
   - Applied configurable multiplier (currently 1.0x)
   - Each layer gets appropriate noise scale
 
+✅ **Formalized production ES framework** (2025-10-21):
+  - Created `src/scripts/es_train.py` following repo conventions
+  - Removed all hardcoded values, moved to config files
+  - Task class architecture for complete logic isolation
+  - Config-driven: LoRA rank/alpha, target layers/modules, noise multiplier
+  - Bash runner scripts in `scripts/experiments/`
+  - Data reorganized to `data/tasks/{conciseness,countdown}/`
+
+✅ **Task class refactoring**:
+  - Created `src/tasks/` module with task registry
+  - `ConcisenessTask` class with train/test data loading
+  - `CountdownTask` class with runtime 80/20 split (seeded)
+  - Consistent interface: `load_data(seed)` and `compute_reward(generated_text, example)`
+  - Complete isolation of task-specific logic from ES framework
+
+✅ **Configuration system**:
+  - `configs/experiments/es_conciseness.yaml` - conciseness experiment config
+  - `configs/experiments/es_countdown.yaml` - countdown experiment config
+  - All hyperparameters config-driven (seed, learning rate, noise multiplier, etc.)
+  - Noise multiplier absorbed hardcoded 0.1 factor (now noise_multiplier: 0.1)
+
+✅ **Optimization and fixes**:
+  - LoRA initialization: load base model once, randomize 30 times (5min → 30s speedup)
+  - Fixed hardcoded model_name and temperature in generate() method
+  - Visualization changed from mean±std to mean with 20th-80th percentile bands
+  - Plot overwrites single file (`evolution.png`) instead of per-generation files
+
 ### Critical Blockers - ALL RESOLVED ✅
 
 ~~**SGLang Dynamic LoRA Loading**~~ → FIXED
@@ -156,28 +183,37 @@ This allows us to isolate the core ES dynamics and understand the fundamental di
 - **Solution**: Initialize both A and B matrices with random normal + 20x scaling
 - **Details**: See `docs/logs/2025-10-21/1748_es_conciseness_task_complete_setup.md`
 
-### Next Steps
-1. **Run first complete ES experiment**:
-   - Execute full 5-generation run with population size 30
-   - Monitor evolution plots for improvement signal
-   - Evaluate best LoRA on test set
-   - Compare evolved LoRA vs base model performance
+~~**Hardcoded Values in Production Script**~~ → FIXED
+- **Problem**: Model name, temperature, LoRA config, noise multiplier all hardcoded
+- **Solution**: Moved everything to YAML configs, made fully config-driven
+- **Details**: See `docs/logs/2025-10-21/1932_es_formalization_and_task_refactoring.md`
 
-2. **Hyperparameter tuning** (if needed):
-   - Adjust noise multiplier based on results (currently 1.0x)
-   - Adjust learning rate α (currently 0.01)
-   - Increase generations (5 → 50-100) for full convergence
+### Current Status & Next Steps
 
-3. **Move to production structure**:
-   - Extract ES framework → src/es_framework.py
-   - Create orchestration script → src/scripts/es_train.py
-   - Create config → configs/experiments/conciseness_es.yaml
-   - Create runner → scripts/experiments/train_conciseness_es.sh
+**Production Framework Status**: ✅ COMPLETE
+- Formal orchestration script following repo conventions
+- Config-driven architecture with no hardcoded values
+- Task class system for complete isolation
+- Bash runners for both conciseness and countdown tasks
+- Ready for full-scale experiments
 
-4. **Analysis framework** (future):
-   - Track metrics: reward, KL divergence, parameter magnitude shifts
-   - Compare ES vs RL behavior
-   - Analyze exploration patterns
+**Performance Investigation**: 🔍 ONGOING
+- Identified performance degradation after removing 20x scaling
+- Root cause: Initial LoRAs now 20x weaker than scratch implementation
+- User will experiment with increased noise_multiplier to compensate
+
+**Immediate Next Steps**:
+1. Run experiments with adjusted noise_multiplier to match scratch performance
+2. Consider adding separate initialization scaling parameter if needed
+3. Execute full experiments (30 generations, population 30) with both tasks
+4. Compare results between conciseness and countdown tasks
+
+**Future Work**:
+1. Hyperparameter tuning to match paper's performance
+2. Longer runs (100+ generations) for full convergence
+3. Analysis framework for tracking evolution dynamics
+4. Comparison with RL baselines
+5. Exploration of different LoRA ranks and configurations
 
 ## Research Questions & Hypotheses
 
@@ -319,5 +355,5 @@ This allows us to isolate the core ES dynamics and understand the fundamental di
 
 ---
 
-**Last Updated**: 2025-10-21 17:48
-**Status**: Full ES framework complete with all critical bugs fixed. Ready to run first complete experiment.
+**Last Updated**: 2025-10-21 19:32
+**Status**: Production ES framework formalized with config-driven architecture and task class system. All hardcoded values removed. Ready for full-scale experiments.

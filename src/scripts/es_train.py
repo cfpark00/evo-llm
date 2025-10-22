@@ -40,6 +40,7 @@ from transformers import AutoModelForCausalLM
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from src.utils import init_directory
+from src.tasks import get_task
 from sglang.utils import launch_server_cmd, wait_for_server, terminate_process
 
 
@@ -101,39 +102,34 @@ class SGLangLoRAEvaluator:
 
 
 # ============================================================================
-# Task-specific reward functions
+# Evaluation functions
 # ============================================================================
 
-def compute_conciseness_reward(generated_text, target_text):
-    """Conciseness task: reward = -|len(generated) - len(target)|"""
-    return -abs(len(generated_text) - len(target_text))
-
-
-def evaluate_single_example(evaluator, lora_name, example, reward_fn, max_tokens):
+def evaluate_single_example(evaluator, lora_name, example, task, max_tokens):
     """Evaluate a single example for a given LoRA."""
     messages = [{"role": "user", "content": example['prompt']}]
     response = evaluator.generate(lora_name, messages, max_tokens=max_tokens)
 
-    reward = reward_fn(response, example['target'])
+    # Use task's compute_reward method
+    reward = task.compute_reward(response, example)
 
     return {
         'example_id': example['id'],
         'prompt': example['prompt'],
-        'target': example['target'],
+        'target': example.get('target'),
         'response': response,
         'reward': reward,
         'generated_length': len(response),
-        'target_length': len(example['target']),
     }
 
 
-def evaluate_lora_on_task(evaluator, lora_name, examples, reward_fn, max_tokens):
+def evaluate_lora_on_task(evaluator, lora_name, examples, task, max_tokens):
     """Evaluate a single LoRA on all examples."""
     total_reward = 0
     results = []
 
     for example in examples:
-        result = evaluate_single_example(evaluator, lora_name, example, reward_fn, max_tokens)
+        result = evaluate_single_example(evaluator, lora_name, example, task, max_tokens)
         total_reward += result['reward']
         results.append(result)
 
@@ -141,13 +137,13 @@ def evaluate_lora_on_task(evaluator, lora_name, examples, reward_fn, max_tokens)
     return mean_reward, results
 
 
-def evaluate_all_loras_parallel(evaluator, lora_names, examples, reward_fn, max_tokens, max_workers):
+def evaluate_all_loras_parallel(evaluator, lora_names, examples, task, max_tokens, max_workers):
     """Evaluate all LoRAs in parallel."""
     print(f"\nEvaluating {len(lora_names)} LoRAs in parallel...")
     start_time = time.time()
 
     def eval_one_lora(lora_name):
-        mean_reward, results = evaluate_lora_on_task(evaluator, lora_name, examples, reward_fn, max_tokens)
+        mean_reward, results = evaluate_lora_on_task(evaluator, lora_name, examples, task, max_tokens)
         return lora_name, mean_reward, results
 
     rewards = [None] * len(lora_names)
@@ -200,8 +196,16 @@ def save_lora_weights(lora_path, config, weights):
         json.dump(config, f, indent=2)
 
 
-def randomize_lora_weights(peft_model, per_layer_noise_scales, target_layers):
-    """Randomize LoRA weights in-place with per-layer noise scaling."""
+def randomize_lora_weights(peft_model, per_layer_noise_scales, target_layers, init_scale=1.0):
+    """
+    Randomize LoRA weights in-place with per-layer noise scaling.
+
+    Args:
+        peft_model: PEFT model with LoRA
+        per_layer_noise_scales: Dict mapping layer_num -> base noise scale
+        target_layers: List of layer numbers to randomize
+        init_scale: Multiplier applied to per_layer_noise_scales (default 1.0)
+    """
     for name, param in peft_model.named_parameters():
         if 'lora_A' in name or 'lora_B' in name:
             # Extract layer number from name
@@ -212,15 +216,27 @@ def randomize_lora_weights(peft_model, per_layer_noise_scales, target_layers):
                     break
 
             if layer_num is not None and layer_num in per_layer_noise_scales:
-                scale = per_layer_noise_scales[layer_num]
+                scale = per_layer_noise_scales[layer_num] * init_scale
                 with torch.no_grad():
                     param.normal_(mean=0.0, std=scale)
 
 
-def create_initial_population(model_name, output_dir, population_size, per_layer_noise_scales, rank=1, alpha=2, target_layers=None):
-    """Create entire initial population by loading model once and randomizing weights."""
-    if target_layers is None:
-        target_layers = list(range(10))
+def create_initial_population(model_name, output_dir, population_size, per_layer_noise_scales, lora_config, init_scale=1.0):
+    """
+    Create entire initial population by loading model once and randomizing weights.
+
+    Args:
+        model_name: HuggingFace model name
+        output_dir: Directory to save LoRAs
+        population_size: Number of LoRAs to create
+        per_layer_noise_scales: Dict mapping layer_num -> base noise scale
+        lora_config: LoRA configuration dict
+        init_scale: Multiplier for initialization noise (default 1.0)
+    """
+    rank = lora_config['rank']
+    alpha = lora_config['alpha']
+    target_layers = lora_config['target_layers']
+    target_modules = lora_config['target_modules']
 
     print("  Loading base model...")
     model = AutoModelForCausalLM.from_pretrained(
@@ -233,7 +249,7 @@ def create_initial_population(model_name, output_dir, population_size, per_layer
     config = LoraConfig(
         r=rank,
         lora_alpha=alpha,
-        target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+        target_modules=target_modules,
         layers_to_transform=target_layers,
         lora_dropout=0.0,
         bias="none",
@@ -247,7 +263,7 @@ def create_initial_population(model_name, output_dir, population_size, per_layer
     for i in range(population_size):
         lora_path = output_dir / f"gen0_lora_{i}"
         if not lora_path.exists():
-            randomize_lora_weights(peft_model, per_layer_noise_scales, target_layers)
+            randomize_lora_weights(peft_model, per_layer_noise_scales, target_layers, init_scale)
             peft_model.save_pretrained(lora_path)
             if (i + 1) % 10 == 0:
                 print(f"  Created {i + 1}/{population_size} LoRAs...")
@@ -299,8 +315,20 @@ def compute_es_update(lora_paths, rewards, base_lora_path, learning_rate):
     return base_config, new_weights
 
 
-def perturb_lora(config, weights, per_layer_noise_scales, seed):
-    """Perturb LoRA weights with Gaussian noise."""
+def perturb_lora(config, weights, per_layer_noise_scales, seed, perturb_scale=1.0):
+    """
+    Perturb LoRA weights with Gaussian noise.
+
+    Args:
+        config: LoRA config dict
+        weights: LoRA weights dict
+        per_layer_noise_scales: Dict mapping layer_num -> base noise scale
+        seed: Random seed for reproducibility
+        perturb_scale: Multiplier applied to per_layer_noise_scales (default 1.0)
+
+    Returns:
+        config, perturbed_weights
+    """
     torch.manual_seed(seed)
     np.random.seed(seed)
 
@@ -308,9 +336,12 @@ def perturb_lora(config, weights, per_layer_noise_scales, seed):
     for key, weight in weights.items():
         if "layers." in key:
             layer_num = int(key.split("layers.")[1].split(".")[0])
-            noise_scale = per_layer_noise_scales.get(layer_num, 0.1)
+            if layer_num in per_layer_noise_scales:
+                noise_scale = per_layer_noise_scales[layer_num] * perturb_scale
+            else:
+                raise ValueError(f"No noise scale found for layer {layer_num}")
         else:
-            noise_scale = 0.1
+            raise ValueError(f"Unexpected weight key without layer number: {key}")
 
         noise = torch.randn_like(weight) * noise_scale
         perturbed_weights[key] = weight + noise
@@ -323,21 +354,24 @@ def perturb_lora(config, weights, per_layer_noise_scales, seed):
 # ============================================================================
 
 def plot_evolution_progress(evolution_history, output_dir, generation_num):
-    """Plot evolution progress."""
+    """Plot evolution progress with 20th/80th percentile bands."""
     figures_dir = Path(output_dir) / "figures"
     figures_dir.mkdir(parents=True, exist_ok=True)
 
     generations = [h['generation'] for h in evolution_history]
     mean_rewards = [h['mean_reward'] for h in evolution_history]
-    std_rewards = [h['std_reward'] for h in evolution_history]
     best_rewards = [max(h['rewards']) for h in evolution_history]
+
+    # Compute 20th and 80th percentiles
+    p20_rewards = [np.percentile(h['rewards'], 20) for h in evolution_history]
+    p80_rewards = [np.percentile(h['rewards'], 80) for h in evolution_history]
 
     plt.figure(figsize=(10, 6))
     plt.plot(generations, mean_rewards, 'b-o', label='Mean Reward', linewidth=2)
     plt.fill_between(generations,
-                     np.array(mean_rewards) - np.array(std_rewards),
-                     np.array(mean_rewards) + np.array(std_rewards),
-                     alpha=0.3, color='blue')
+                     p20_rewards,
+                     p80_rewards,
+                     alpha=0.3, color='blue', label='20th-80th percentile')
     plt.plot(generations, best_rewards, 'g--^', label='Best Reward', linewidth=2)
     plt.xlabel('Generation', fontsize=12)
     plt.ylabel('Reward', fontsize=12)
@@ -349,12 +383,85 @@ def plot_evolution_progress(evolution_history, output_dir, generation_num):
     plt.close()
 
 
+def plot_time_breakdown(time_tracker, output_dir):
+    """Plot time breakdown as a horizontal bar chart."""
+    figures_dir = Path(output_dir) / "figures"
+    figures_dir.mkdir(parents=True, exist_ok=True)
+
+    # Aggregate time by category
+    categories = {}
+    for key, duration in time_tracker.items():
+        if key.startswith('gen'):
+            # Generation-specific timings (e.g., "gen0_loading", "gen1_es_update")
+            # Remove generation prefix to get category
+            parts = key.split('_', 1)  # Split into ['genN', 'rest']
+            if len(parts) >= 2:
+                category = parts[1]  # "loading", "evaluation", "es_update", "create_loras", etc.
+                if category not in categories:
+                    categories[category] = 0.0
+                categories[category] += duration
+        else:
+            # One-time setup timings
+            categories[key] = duration
+
+    # Sort by total time
+    sorted_categories = sorted(categories.items(), key=lambda x: x[1], reverse=True)
+    cat_names = [c[0] for c in sorted_categories]
+    cat_times = [c[1] for c in sorted_categories]
+
+    # Determine colors: per-generation operations vs one-time setup
+    per_gen_categories = {'evaluation', 'loading', 'unloading', 'es_update', 'create_loras'}
+    colors = ['coral' if name in per_gen_categories else 'steelblue' for name in cat_names]
+
+    # Create horizontal bar chart
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    y_pos = np.arange(len(cat_names))
+    bars = ax.barh(y_pos, cat_times, color=colors)
+    ax.set_yticks(y_pos)
+    ax.set_yticklabels(cat_names, fontsize=11)
+    ax.set_xlabel('Total Time (seconds)', fontsize=12)
+    ax.set_title('Time Breakdown by Category', fontsize=14, fontweight='bold')
+    ax.grid(True, alpha=0.3, axis='x')
+
+    # Add legend
+    from matplotlib.patches import Patch
+    legend_elements = [
+        Patch(facecolor='coral', label='Per-generation'),
+        Patch(facecolor='steelblue', label='One-time setup')
+    ]
+    ax.legend(handles=legend_elements, loc='upper right', fontsize=10)
+
+    # Add time labels on bars
+    for i, (name, time_val) in enumerate(zip(cat_names, cat_times)):
+        ax.text(time_val, i, f'  {time_val:.1f}s', va='center', fontsize=10)
+
+    plt.tight_layout()
+    plt.savefig(figures_dir / "time_breakdown.png", dpi=150)
+    plt.close()
+
+    # Print summary
+    total_time = sum(cat_times)
+    print("\n" + "=" * 80)
+    print("TIME BREAKDOWN SUMMARY")
+    print("=" * 80)
+    for name, time_val in sorted_categories:
+        percentage = (time_val / total_time) * 100 if total_time > 0 else 0
+        print(f"  {name:30s}: {time_val:8.2f}s ({percentage:5.1f}%)")
+    print(f"  {'TOTAL':30s}: {total_time:8.2f}s")
+    print("=" * 80)
+
+
 # ============================================================================
 # Main
 # ============================================================================
 
 def main(config_path, overwrite=False, debug=False):
     """Main ES evolution loop."""
+
+    # Initialize time tracker
+    time_tracker = {}
+    experiment_start = time.time()
 
     # Load config
     with open(config_path, 'r') as f:
@@ -384,15 +491,17 @@ def main(config_path, overwrite=False, debug=False):
     shutil.copy(config_path, output_dir / "config.yaml")
 
     # Extract config values
+    seed = config.get('seed', 42)
     model_name = config['model']['name']
     task_name = config['task']['name']
     train_data = Path(config['task']['train_data'])
-    test_data = Path(config['task']['test_data'])
+    test_data = Path(config['task'].get('test_data', config['task']['train_data']))
 
     num_generations = config['es']['num_generations']
     population_size = config['es']['population_size']
     learning_rate = config['es']['learning_rate']
-    noise_multiplier = config['es']['noise_multiplier']
+    init_scale = config['es']['init_scale']
+    perturb_scale = config['es']['perturb_scale']
 
     max_tokens = config['evaluation']['max_tokens']
 
@@ -401,17 +510,11 @@ def main(config_path, overwrite=False, debug=False):
     n_cpus = os.cpu_count() or 1
     max_workers = min(population_size, n_cpus)
 
-    # Load task data
-    with open(train_data, 'r') as f:
-        train_examples = json.load(f)
-    with open(test_data, 'r') as f:
-        test_examples = json.load(f)
-
-    # Select reward function based on task
-    if task_name == "conciseness":
-        reward_fn = compute_conciseness_reward
-    else:
-        raise ValueError(f"Unknown task: {task_name}")
+    # Initialize task and load data
+    task = get_task(task_name, config['task'])
+    task.load_data(seed=seed)
+    train_examples = task.train_data
+    test_examples = task.test_data
 
     print("=" * 80)
     print("ES EVOLUTION WITH PARALLEL MULTI-LORA BATCHING")
@@ -421,6 +524,8 @@ def main(config_path, overwrite=False, debug=False):
     print(f"  Num generations: {num_generations}")
     print(f"  Population size: {population_size}")
     print(f"  Learning rate (α): {learning_rate}")
+    print(f"  Init scale: {init_scale}")
+    print(f"  Perturb scale: {perturb_scale}")
     print(f"  Training examples: {len(train_examples)}")
     print(f"  Test examples: {len(test_examples)}")
     print(f"  Output dir: {output_dir}")
@@ -429,6 +534,7 @@ def main(config_path, overwrite=False, debug=False):
 
     # Step 1: Compute per-layer noise scales from base model
     print("Step 1: Analyzing base model weight magnitudes...")
+    t_start = time.time()
     print("  Loading base model...")
     base_model = AutoModelForCausalLM.from_pretrained(
         model_name,
@@ -437,37 +543,45 @@ def main(config_path, overwrite=False, debug=False):
     )
 
     per_layer_noise_scales = {}
-    target_layers = list(range(10))  # Layers 0-9
+    target_layers = config['lora']['target_layers']
+    target_modules = config['lora']['target_modules']
 
+    # Compute base noise scale as 10% of mean weight magnitude per layer
     for layer_num in target_layers:
         layer_magnitudes = []
         for name, param in base_model.named_parameters():
-            if f"layers.{layer_num}." in name and any(t in name for t in ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]):
+            if f"layers.{layer_num}." in name and any(t in name for t in target_modules):
                 layer_magnitudes.append(param.abs().mean().item())
 
         if layer_magnitudes:
             mean_magnitude = np.mean(layer_magnitudes)
-            per_layer_noise_scales[layer_num] = mean_magnitude * 0.1 * noise_multiplier
+            # Base noise is 10% of mean magnitude (will be multiplied by init_scale/perturb_scale later)
+            per_layer_noise_scales[layer_num] = mean_magnitude * 0.1
 
     del base_model
     torch.cuda.empty_cache()
+    time_tracker['weight_analysis'] = time.time() - t_start
 
-    print(f"✓ Computed noise scales for {len(per_layer_noise_scales)} layers")
+    print(f"✓ Computed base noise scales (10% of mean magnitude) for {len(per_layer_noise_scales)} layers")
     for layer_num in sorted(per_layer_noise_scales.keys())[:3]:
         print(f"    Layer {layer_num}: {per_layer_noise_scales[layer_num]:.6f}")
     print()
 
     # Step 2: Create initial population
     print("Step 2: Creating initial population...")
+    print(f"  Using init_scale={init_scale} (multiplier on per-layer base noise)")
+    t_start = time.time()
     loras_dir = output_dir / "loras"
     initial_loras = create_initial_population(
-        model_name, loras_dir, population_size, per_layer_noise_scales, target_layers=target_layers
+        model_name, loras_dir, population_size, per_layer_noise_scales, config['lora'], init_scale
     )
+    time_tracker['init_population'] = time.time() - t_start
     print(f"✓ Created {population_size} initial LoRAs")
     print()
 
     # Step 3: Launch SGLang server
     print("Step 3: Launching SGLang server...")
+    t_start = time.time()
     server_process, port = launch_server_cmd(f"""
         python3 -m sglang.launch_server \
             --model-path {model_name} \
@@ -486,6 +600,7 @@ def main(config_path, overwrite=False, debug=False):
     evaluator.set_port(port)
 
     wait_for_server(f"http://localhost:{port}")
+    time_tracker['server_launch'] = time.time() - t_start
     print("✓ Server ready")
     print()
 
@@ -500,6 +615,7 @@ def main(config_path, overwrite=False, debug=False):
         print("GENERATION 0: Evaluating initial population")
         print("=" * 80)
 
+        t_load = time.time()
         print(f"\nLoading {population_size} LoRAs...")
         for i, lora_path in enumerate(initial_loras):
             lora_name = f"gen0_lora{i}"
@@ -507,11 +623,14 @@ def main(config_path, overwrite=False, debug=False):
             if (i + 1) % 10 == 0:
                 print(f"  Loaded {i + 1}/{population_size}...")
         print(f"✓ All {population_size} LoRAs loaded")
+        time_tracker['gen0_loading'] = time.time() - t_load
 
+        t_eval = time.time()
         lora_names = [f"gen0_lora{i}" for i in range(population_size)]
         gen0_rewards, gen0_results = evaluate_all_loras_parallel(
-            evaluator, lora_names, train_examples, reward_fn, max_tokens, max_workers
+            evaluator, lora_names, train_examples, task, max_tokens, max_workers
         )
+        time_tracker['gen0_evaluation'] = time.time() - t_eval
 
         evolution_history.append({
             'generation': 0,
@@ -540,6 +659,7 @@ def main(config_path, overwrite=False, debug=False):
 
             # ES update
             print(f"\nStep 1: Computing ES update (α={learning_rate})...")
+            t_update = time.time()
             prev_base_path = loras_dir / f"gen{gen-1}_base" if gen > 1 else None
             base_config, base_weights = compute_es_update(
                 prev_loras, prev_rewards, prev_base_path, learning_rate
@@ -547,42 +667,52 @@ def main(config_path, overwrite=False, debug=False):
 
             base_lora_path = loras_dir / f"gen{gen}_base"
             save_lora_weights(base_lora_path, base_config, base_weights)
+            time_tracker[f'gen{gen}_es_update'] = time.time() - t_update
             print(f"  ✓ Saved base LoRA")
 
             # Create new generation
             print(f"\nStep 2: Creating {population_size} perturbed LoRAs...")
+            print(f"  Using perturb_scale={perturb_scale} (multiplier on per-layer base noise)")
+            t_create = time.time()
             new_lora_paths = []
             for i in range(population_size):
                 perturbed_config, perturbed_weights = perturb_lora(
-                    base_config, base_weights, per_layer_noise_scales, gen * 1000 + i
+                    base_config, base_weights, per_layer_noise_scales, gen * 1000 + i, perturb_scale
                 )
                 perturbed_path = loras_dir / f"gen{gen}_lora_{i}"
                 save_lora_weights(perturbed_path, perturbed_config, perturbed_weights)
                 new_lora_paths.append(perturbed_path)
+            time_tracker[f'gen{gen}_create_loras'] = time.time() - t_create
             print(f"  ✓ Created {population_size} new LoRAs")
 
             # Unload old generation
             print(f"\nStep 3: Unloading generation {gen-1}...")
+            t_unload = time.time()
             for i in range(population_size):
                 old_lora_name = f"gen{gen-1}_lora{i}"
                 evaluator.unload_lora(old_lora_name)
+            time_tracker[f'gen{gen}_unloading'] = time.time() - t_unload
             print(f"  ✓ Unloaded {population_size} old LoRAs")
 
             # Load new generation
             print(f"\nStep 4: Loading generation {gen}...")
+            t_load = time.time()
             for i, lora_path in enumerate(new_lora_paths):
                 lora_name = f"gen{gen}_lora{i}"
                 evaluator.load_lora(lora_name, lora_path)
                 if (i + 1) % 10 == 0:
                     print(f"  Loaded {i + 1}/{population_size}...")
+            time_tracker[f'gen{gen}_loading'] = time.time() - t_load
             print(f"✓ All {population_size} new LoRAs loaded")
 
             # Evaluate
             print(f"\nStep 5: Evaluating generation {gen}...")
+            t_eval = time.time()
             new_lora_names = [f"gen{gen}_lora{i}" for i in range(population_size)]
             new_rewards, new_results = evaluate_all_loras_parallel(
-                evaluator, new_lora_names, train_examples, reward_fn, max_tokens, max_workers
+                evaluator, new_lora_names, train_examples, task, max_tokens, max_workers
             )
+            time_tracker[f'gen{gen}_evaluation'] = time.time() - t_eval
 
             evolution_history.append({
                 'generation': gen,
@@ -614,11 +744,14 @@ def main(config_path, overwrite=False, debug=False):
         print(f"\nEvaluating on test set...")
 
         test_reward, test_results = evaluate_lora_on_task(
-            evaluator, best_lora_name, test_examples, reward_fn, max_tokens
+            evaluator, best_lora_name, test_examples, task, max_tokens
         )
 
         print(f"\nTest set results:")
         print(f"  Mean reward: {test_reward:.4f}")
+
+        # Record total experiment time
+        time_tracker['total_experiment'] = time.time() - experiment_start
 
         # Save results
         results_file = output_dir / "results" / "evolution_history.json"
@@ -626,6 +759,16 @@ def main(config_path, overwrite=False, debug=False):
         with open(results_file, 'w') as f:
             json.dump(evolution_history, f, indent=2)
         print(f"\n✓ Saved evolution history to: {results_file}")
+
+        # Save time tracker
+        time_file = output_dir / "results" / "time_breakdown.json"
+        with open(time_file, 'w') as f:
+            json.dump(time_tracker, f, indent=2)
+        print(f"✓ Saved time breakdown to: {time_file}")
+
+        # Plot time breakdown
+        plot_time_breakdown(time_tracker, output_dir)
+        print(f"✓ Saved time breakdown plot to: {output_dir / 'figures' / 'time_breakdown.png'}")
 
     finally:
         print("\n" + "=" * 80)
